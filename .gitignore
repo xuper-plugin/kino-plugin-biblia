@@ -1,0 +1,4 @@
+sdk/
+contract.json
+.kino-*.json
+node_modules/
