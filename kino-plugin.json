@@ -1,7 +1,7 @@
 {
   "id": "biblia",
   "name": "Biblia en audio",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "apiVersion": 19,
   "entry": "plugin.js",
   "description": "La Biblia completa en audio (Reina Valera), libro por libro y capítulo por capítulo, con el texto de cada capítulo en la letra.",

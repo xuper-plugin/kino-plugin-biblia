@@ -6,6 +6,8 @@
 const AUDIO = "https://www.wordproaudio.net/bibles/app/audio/6";
 const TEXT = "https://www.wordproject.org/bibles/sp";
 const BOLLS = "https://bolls.life/get-text";
+const COVERS = "https://raw.githubusercontent.com/xuper-plugin/kino-plugin-biblia/main/covers";
+const bookCover = (b) => `${COVERS}/libro-${b.num}.png`;
 const NARRATOR = "Reina Valera";
 
 const VERSIONS = {
@@ -148,6 +150,7 @@ function bookItem(b) {
     title: b.name,
     kind: "podcast",
     artist: NARRATOR,
+    poster: bookCover(b),
     overview: `${b.about} ${b.chapters === 1 ? "1 capítulo" : `${b.chapters} capítulos`} · ${testament(b)}.`,
     genres: [testament(b), SECTION_NAME[b.section]],
     lang: "es",
@@ -161,6 +164,8 @@ function chapterItem(b, chapter, theme) {
     title: theme || `${b.name} ${chapter}`,
     kind: "podcast",
     artist: `${b.name} ${chapter}`,
+    // Favorites have their own cover; any other chapter shows its book's.
+    poster: theme ? `${COVERS}/cap-${b.num}-${chapter}.png` : bookCover(b),
     overview: `${b.name}, capítulo ${chapter}. ${b.about}`,
     genres: [testament(b), SECTION_NAME[b.section]],
     lang: "es",
@@ -260,6 +265,7 @@ function chapterEpisode(b, chapter, title) {
     number: chapter,
     ref: `chap:${b.num}:${chapter}`,
     title: title || `${b.name} ${chapter}`,
+    still: bookCover(b),
   };
 }
 
@@ -269,6 +275,7 @@ export async function episodes(ref) {
   const { book: b } = r;
   const series = {
     title: r.kind === "chap" ? `${b.name} ${r.chapter}` : b.name,
+    poster: bookCover(b),
     overview: b.about,
     genres: [testament(b), SECTION_NAME[b.section]],
   };
