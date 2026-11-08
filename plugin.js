@@ -10,16 +10,26 @@ const COVERS = "https://raw.githubusercontent.com/xuper-plugin/kino-plugin-bibli
 const bookCover = (b) => `${COVERS}/libro-${b.num}.png`;
 const NARRATOR = "Reina Valera";
 
+// code: [tab label, full name]. The codes are bolls.life's; RV1909 comes from WordProject.
 const VERSIONS = {
-  RV1960: "Reina-Valera 1960",
-  NVI: "Nueva Versión Internacional",
-  NTV: "Nueva Traducción Viviente",
-  LBLA: "La Biblia de las Américas",
-  PDT: "Palabra de Dios para Todos",
-  BTX3: "La Biblia Textual",
-  RV2004: "Reina Valera Gómez 2004",
-  RV1909: "Reina Valera 1909",
+  RV1960: ["RV1960", "Reina-Valera 1960"],
+  NTV: ["NTV", "Nueva Traducción Viviente"],
+  LBLA: ["LBLA", "La Biblia de las Américas"],
+  PDT: ["PDT", "Palabra de Dios para Todos"],
+  BTX3: ["Textual", "La Biblia Textual"],
+  RV2004: ["RV Gómez", "Reina Valera Gómez 2004"],
+  RV1909: ["RV1909", "Reina Valera 1909"],
 };
+const DEFAULT_VERSION = "RV1960";
+const defaultVersion = () => {
+  const v = kino.config.get("textVersion");
+  return VERSIONS[v] ? v : DEFAULT_VERSION;
+};
+const pickVersion = (v) => (VERSIONS[v] ? v : defaultVersion());
+const shortName = (v) => VERSIONS[v][0];
+const fullName = (v) => VERSIONS[v][1];
+// The default version keeps the original ids, so titles saved before versions existed stay where they were.
+const idSuffix = (v) => (v === DEFAULT_VERSION ? "" : `-${v.toLowerCase()}`);
 
 // [number, name, chapters, section, short description]
 const BOOKS = [
@@ -130,49 +140,60 @@ const byNum = (n) => BOOKS.find((b) => b.num === Number(n));
 const testament = (b) => (b.num <= 39 ? "Antiguo Testamento" : "Nuevo Testamento");
 
 // ─── Refs ───────────────────────────────────────────────────────────────────
-// Book: book:{num}   Chapter: chap:{num}:{chapter}
+// Book: book:{num}:{version}   Chapter: chap:{num}:{chapter}:{version}
+// Refs saved before versions existed have no version and get the default one.
 
 function parseRef(ref) {
-  const [kind, num, chapter] = String(ref || "").split(":");
+  const [kind, num, a, b] = String(ref || "").split(":");
   const book = byNum(num);
   if (!book || (kind !== "book" && kind !== "chap")) return null;
-  const ch = Number(chapter);
-  if (kind === "chap" && !(Number.isInteger(ch) && ch >= 1 && ch <= book.chapters)) return null;
-  return { kind, book, chapter: kind === "chap" ? ch : null };
+  if (kind === "book") return { kind, book, chapter: null, version: pickVersion(a) };
+  const ch = Number(a);
+  if (!(Number.isInteger(ch) && ch >= 1 && ch <= book.chapters)) return null;
+  return { kind, book, chapter: ch, version: pickVersion(b) };
 }
 
 // ─── Items ──────────────────────────────────────────────────────────────────
 
-function bookItem(b) {
+function bookItem(b, version) {
   return {
-    id: `libro-${b.num}`,
-    ref: `book:${b.num}`,
+    id: `libro-${b.num}${idSuffix(version)}`,
+    ref: `book:${b.num}:${version}`,
     title: b.name,
     kind: "podcast",
-    artist: NARRATOR,
+    artist: fullName(version),
     poster: bookCover(b),
-    overview: `${b.about} ${b.chapters === 1 ? "1 capítulo" : `${b.chapters} capítulos`} · ${testament(b)}.`,
+    overview: `${b.about} ${b.chapters === 1 ? "1 capítulo" : `${b.chapters} capítulos`} · ${testament(b)}. Texto: ${fullName(version)}.`,
     genres: [testament(b), SECTION_NAME[b.section]],
     lang: "es",
   };
 }
 
-function chapterItem(b, chapter, theme) {
+function chapterItem(b, chapter, theme, version) {
   return {
-    id: `cap-${b.num}-${chapter}`,
-    ref: `chap:${b.num}:${chapter}`,
+    id: `cap-${b.num}-${chapter}${idSuffix(version)}`,
+    ref: `chap:${b.num}:${chapter}:${version}`,
     title: theme || `${b.name} ${chapter}`,
     kind: "podcast",
-    artist: `${b.name} ${chapter}`,
+    artist: `${b.name} ${chapter} · ${shortName(version)}`,
     // Favorites have their own cover; any other chapter shows its book's.
     poster: theme ? `${COVERS}/cap-${b.num}-${chapter}.png` : bookCover(b),
-    overview: `${b.name}, capítulo ${chapter}. ${b.about}`,
+    overview: `${b.name}, capítulo ${chapter}. ${b.about} Texto: ${fullName(version)}.`,
     genres: [testament(b), SECTION_NAME[b.section]],
     lang: "es",
   };
 }
 
-const favoriteItems = () => FAVORITES.map(([n, c, theme]) => chapterItem(byNum(n), c, theme));
+const favoriteItems = (version) => FAVORITES.map(([n, c, theme]) => chapterItem(byNum(n), c, theme, version));
+
+/** The version a lyrics query names ("Génesis 1 · NVI"), or null. */
+function versionIn(text) {
+  const s = ` ${norm(text)} `;
+  for (const [code, [short]] of Object.entries(VERSIONS)) {
+    if (s.includes(` ${norm(code)} `) || s.includes(` ${norm(short)} `)) return code;
+  }
+  return null;
+}
 
 // ─── Finding a book in free text ("juan 3", "Salmo 23", "1 Co 13", "Génesis capítulo 1") ─────
 
@@ -228,13 +249,33 @@ function findPassage(text) {
 
 // ─── Catalog ────────────────────────────────────────────────────────────────
 
-export async function home() {
+function rowsFor(version) {
+  const books = (pick) => BOOKS.filter(pick).map((b) => bookItem(b, version));
   return [
-    { id: "favoritos", title: "Pasajes favoritos", items: favoriteItems() },
-    { id: "antiguo", title: "Antiguo Testamento", items: BOOKS.filter((b) => b.num <= 39).map(bookItem) },
-    { id: "nuevo", title: "Nuevo Testamento", items: BOOKS.filter((b) => b.num >= 40).map(bookItem) },
-    ...SECTIONS.map(([key, title]) => ({ id: key, title, items: BOOKS.filter((b) => b.section === key).map(bookItem) })),
+    { id: "favoritos", title: "Pasajes favoritos", items: favoriteItems(version) },
+    { id: "antiguo", title: "Antiguo Testamento", items: books((b) => b.num <= 39) },
+    { id: "nuevo", title: "Nuevo Testamento", items: books((b) => b.num >= 40) },
+    ...SECTIONS.map(([key, title]) => ({ id: key, title, items: books((b) => b.section === key) })),
   ];
+}
+
+export async function home() {
+  return rowsFor(defaultVersion());
+}
+
+/** The plugin's own section in Inicio: one tab per version. */
+export async function section({ tab } = {}) {
+  const version = VERSIONS[tab] ? tab : defaultVersion();
+  return {
+    tabs: Object.entries(VERSIONS).map(([id, [label]]) => ({ id, label })),
+    tab: version,
+    hero: {
+      title: fullName(version),
+      text: "Elige arriba la versión del texto. El audio es Reina Valera y la letra de cada capítulo sale en la versión que elijas.",
+      image: bookCover(byNum(19)),
+    },
+    rows: rowsFor(version),
+  };
 }
 
 export async function search(query) {
@@ -242,29 +283,31 @@ export async function search(query) {
   const q = norm(raw);
   if (!q) return [];
 
+  const version = versionIn(raw) || defaultVersion();
   const out = [];
   const passage = findPassage(raw);
-  if (passage?.chapter) out.push(chapterItem(passage.book, passage.chapter));
-  if (passage) out.push(bookItem(passage.book));
+  if (passage?.chapter) out.push(chapterItem(passage.book, passage.chapter, null, version));
+  if (passage) out.push(bookItem(passage.book, version));
 
   for (const [n, c, theme] of FAVORITES) {
-    if (norm(theme).includes(q)) out.push(chapterItem(byNum(n), c, theme));
+    if (norm(theme).includes(q)) out.push(chapterItem(byNum(n), c, theme, version));
   }
   for (const b of BOOKS) {
     const hay = norm(`${b.name} ${b.about} ${SECTION_NAME[b.section]} ${testament(b)}`);
-    if (q.split(" ").every((w) => hay.includes(w))) out.push(bookItem(b));
+    if (q.split(" ").every((w) => hay.includes(w))) out.push(bookItem(b, version));
   }
 
   const seen = new Set();
   return out.filter((it) => !seen.has(it.id) && seen.add(it.id)).slice(0, 100);
 }
 
-function chapterEpisode(b, chapter, title) {
+// The version rides in the episode's title: it is what lyrics() receives, never the ref.
+function chapterEpisode(b, chapter, version) {
   return {
     season: 1,
     number: chapter,
-    ref: `chap:${b.num}:${chapter}`,
-    title: title || `${b.name} ${chapter}`,
+    ref: `chap:${b.num}:${chapter}:${version}`,
+    title: `${b.name} ${chapter} · ${shortName(version)}`,
     still: bookCover(b),
   };
 }
@@ -272,17 +315,17 @@ function chapterEpisode(b, chapter, title) {
 export async function episodes(ref) {
   const r = parseRef(ref);
   if (!r) throw kino.error("not_found", `unknown ref ${ref}`, { userMessage: "No encontré ese libro." });
-  const { book: b } = r;
+  const { book: b, version } = r;
   const series = {
     title: r.kind === "chap" ? `${b.name} ${r.chapter}` : b.name,
     poster: bookCover(b),
-    overview: b.about,
+    overview: `${b.about} Texto: ${fullName(version)}.`,
     genres: [testament(b), SECTION_NAME[b.section]],
   };
-  if (r.kind === "chap") return { series, episodes: [chapterEpisode(b, r.chapter)] };
+  if (r.kind === "chap") return { series, episodes: [chapterEpisode(b, r.chapter, version)] };
   return {
     series,
-    episodes: Array.from({ length: b.chapters }, (_, i) => chapterEpisode(b, i + 1)),
+    episodes: Array.from({ length: b.chapters }, (_, i) => chapterEpisode(b, i + 1, version)),
   };
 }
 
@@ -339,19 +382,17 @@ async function wordprojectVerses(b, chapter) {
   return verses;
 }
 
-/** { verses, label } in the chosen version, falling back to WordProject's 1909 text. */
-async function chapterText(b, chapter) {
-  const chosen = kino.config.get("textVersion");
-  const version = VERSIONS[chosen] ? chosen : "RV1960";
+/** { verses, label } in that version, falling back to WordProject's 1909 text. */
+async function chapterText(b, chapter, version) {
   if (version !== "RV1909") {
     try {
       const verses = await bollsVerses(version, b, chapter);
-      if (verses.length) return { verses, label: VERSIONS[version] };
+      if (verses.length) return { verses, label: fullName(version) };
     } catch (err) {
       kino.log("[biblia] bolls failed:", err?.code || err?.message);
     }
   }
-  return { verses: await wordprojectVerses(b, chapter), label: VERSIONS.RV1909 };
+  return { verses: await wordprojectVerses(b, chapter), label: fullName("RV1909") };
 }
 
 export async function lyrics(query) {
@@ -361,8 +402,9 @@ export async function lyrics(query) {
     findPassage(`${query?.album || ""} ${query?.title || ""}`);
   if (!passage) return null;
   const chapter = passage.chapter || 1;
+  const version = versionIn(`${query?.title || ""} ${query?.artist || ""} ${query?.album || ""}`) || defaultVersion();
 
-  const { verses, label } = await chapterText(passage.book, chapter);
+  const { verses, label } = await chapterText(passage.book, chapter, version);
   if (!verses.length) return null;
 
   const numbered = kino.config.get("verseNumbers") !== false;
