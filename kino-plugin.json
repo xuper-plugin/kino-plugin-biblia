@@ -1,14 +1,14 @@
 {
   "id": "biblia",
   "name": "Biblia en audio",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "apiVersion": 19,
   "entry": "plugin.js",
   "description": "La Biblia completa en audio (Reina Valera), libro por libro y capítulo por capítulo, con el texto de cada capítulo en la letra.",
   "author": "xuper-plugin",
   "color": "#8B5E34",
   "icon": "icon.png",
-  "discoverable": false,
+  "discoverable": true,
   "hosts": [
     "www.wordproaudio.net",
     "www.wordproject.org",
